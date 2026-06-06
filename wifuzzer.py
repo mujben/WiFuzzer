@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+import os
+import re
 import time
 import argparse
 from collections import deque
@@ -15,10 +17,15 @@ def get_available_modes():
     special = ["seq_fuzz"]
     return stateless + special
 
+def validate_mac(mac):
+    if not re.match(r'^([0-9A-Fa-f]{2}:){5}([0-9A-Fa-f]{2})$', mac):
+        raise ValueError(f"Invalid MAC address format: {mac}")
+
 def main():
     parser = argparse.ArgumentParser(description="Wi-Fi Fuzzer tool.", epilog="Example usage: python fuzzer.py -a 02:00:00:00:00:00 -i wlan0")
-    parser.add_argument("-a", "--ap-mac", help="MAC address of the targeted AP device")
-    parser.add_argument("-c", "--client-mac", help="MAC address of the STA client device")
+    parser.add_argument("-t", "--target-mac", help="MAC address of the targeted device")
+    parser.add_argument("-c", "--client-mac", help="MAC address of the client device")
+    parser.add_argument("-T", "--target-type", choices=["AP", "STA"], default="AP", help="Type of the target device: 'AP' for Access Point, 'STA' for Station (default: AP)")
     parser.add_argument("-i", "--iface", default="wlan0", help="Wireless interface to use set to monitor mode (default: wlan0)")
     parser.add_argument("-m", "--mode", choices=get_available_modes(), default="ssid_len", help="Fuzzing mode to use (default: ssid_len)")
     parser.add_argument("-I", "--intensity", type=float, default=0.05, help="IFS (Inter-frame spacing) in seconds (default: 0.05)")
@@ -29,15 +36,20 @@ def main():
     IFS = args.intensity
     MONITOR_TIMEOUT = 2
 
-    target_mac = args.ap_mac if args.ap_mac else args.client_mac
-    if not target_mac:
+    target_mac = args.target_mac
+    client_mac = args.client_mac
+    if not (target_mac or client_mac):
         raise ValueError("Error: You must specify either an AP MAC address or a client MAC address.")
-        
+    validate_mac([m for m in [target_mac, client_mac] if m is not None])
+
+    if not os.path.exists(f"/sys/class/net/{args.iface}"):
+        raise ValueError(f"Error: Interface {args.iface} does not exist.")
+
     print(f"[*] Starting fuzzing device {target_mac} on interface {args.iface}")
     print("[!] Press Ctrl+C to stop.")
 
     # Initialize the device health monitor
-    monitor = DeviceHealthMonitor(target_mac, args.iface, target_type="AP" if args.ap_mac else "STA", log_csv=args.log_csv)
+    monitor = DeviceHealthMonitor(target_mac, args.iface, target_type=args.target_type, log_csv=args.log_csv)
     monitor.start()
 
     # Queue for storing sent frames to identify successful hit
@@ -80,6 +92,8 @@ def main():
 
     except KeyboardInterrupt:
         print("\n[*] Fuzzing stopped by user.")
+    except OSError as e:
+        print(f"\n[!] OS error occurred: {e}")
     except Exception as e:
         print(f"\n[!] An error occurred: {e}")
     finally:

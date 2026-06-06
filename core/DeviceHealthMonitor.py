@@ -50,6 +50,11 @@ class DeviceHealthMonitor:
                 writer.writerow([now, round(delta, 2), "OK" if alive else "FAIL"])
         return alive
 
+    def reset_last_seen(self):
+        """Reset the last seen timestamp to the current time."""
+        with self.last_seen_lock:
+            self.last_seen = time.time()
+
     def stop(self):
         """Stop the device health monitor."""
         self.is_running = False
