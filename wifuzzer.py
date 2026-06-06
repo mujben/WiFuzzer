@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+import time
+import argparse
+from collections import deque
+from scapy.all import Dot11, Dot11Deauth, sendp
+
+from core.DeviceHealthMonitor import DeviceHealthMonitor
+from core.enums import StatelessFuzzMode
+from fuzzers.SeqFuzz import SeqFuzz
+from fuzzers.StatelessFuzz import StatelessFuzz
+
+def get_available_modes():
+    """Returns a list of available fuzzing modes."""
+    stateless = [m.name for m in StatelessFuzzMode]
+    special = ["seq_fuzz"]
+    return stateless + special
+
+def main():
+    parser = argparse.ArgumentParser(description="Wi-Fi Fuzzer tool.", epilog="Example usage: python fuzzer.py -a 02:00:00:00:00:00 -i wlan0")
+    parser.add_argument("-a", "--ap-mac", help="MAC address of the targeted AP device")
+    parser.add_argument("-c", "--client-mac", help="MAC address of the STA client device")
+    parser.add_argument("-i", "--iface", default="wlan0", help="Wireless interface to use set to monitor mode (default: wlan0)")
+    parser.add_argument("-m", "--mode", choices=get_available_modes(), default="ssid_len", help="Fuzzing mode to use (default: ssid_len)")
+    parser.add_argument("-I", "--intensity", type=float, default=0.05, help="IFS (Inter-frame spacing) in seconds (default: 0.05)")
+    parser.add_argument("--log-csv", action="store_true", help="Enable CSV logging of device health data")
+    args = parser.parse_args()
+
+    # Configuration of the attack
+    IFS = args.intensity
+    MONITOR_TIMEOUT = 2
+
+    target_mac = args.ap_mac if args.ap_mac else args.client_mac
+    if not target_mac:
+        raise ValueError("Error: You must specify either an AP MAC address or a client MAC address.")
+        
+    print(f"[*] Starting fuzzing device {target_mac} on interface {args.iface}")
+    print("[!] Press Ctrl+C to stop.")
+
+    # Initialize the device health monitor
+    monitor = DeviceHealthMonitor(target_mac, args.iface, target_type="AP" if args.ap_mac else "STA", log_csv=args.log_csv)
+    monitor.start()
+
+    # Queue for storing sent frames to identify successful hit
+    history = deque(maxlen=int(1/IFS * MONITOR_TIMEOUT))
+    time_of_death = 0
+    count = 0
+
+    # Fuzzer initialization
+    if args.mode == "seq_fuzz":
+        fuzzer = SeqFuzz(target_mac=target_mac, interface=args.iface)
+    elif args.mode == "stateful_fuzz":
+        exit(1)
+    else:
+        fuzzer = StatelessFuzz(target_mac=target_mac, interface=args.iface, attack_mode=StatelessFuzzMode[args.mode])
+
+    try:
+        fuzzer.setup()
+        while True:
+            if not monitor.is_target_alive(timeout=MONITOR_TIMEOUT):
+                print(f"[!] Target {target_mac} is not responding.")
+                print(f"[*] Crash detected after {count} fuzzed frames.")
+                if not monitor.active_probe():
+                    time_of_death = monitor.last_seen
+                    print("[*] Active probe failed, confirming target is unresponsive. Stopping fuzzing.")
+                    break
+                else:
+                    monitor.reset_last_seen()  # Reset last seen to avoid false positives
+            
+        # if fuzzer.is_running():
+            frame = fuzzer.next_frame()
+            if frame is None:
+                print("[*] Fuzzer has exhausted all frames. Stopping fuzzing.")
+                break
+            sendp(frame, iface=args.iface, verbose=False)
+            history.append((frame, time.time()))
+            count += 1
+            time.sleep(IFS)
+            if count % 100 == 0:
+                print(f"[*] Sent {count} frames so far...")
+
+    except KeyboardInterrupt:
+        print("\n[*] Fuzzing stopped by user.")
+    except Exception as e:
+        print(f"\n[!] An error occurred: {e}")
+    finally:
+        if time_of_death != 0:
+            for frame, timestamp in history:
+                if frame is None: continue
+                if timestamp >= time_of_death - 0.5 and timestamp <= time_of_death + 0.5:
+                    print(f"Potential crash-inducing frame sent at {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(timestamp))}:")
+                    print(f"{frame.summary()}\n"
+                            f"ID: {frame[Dot11].ID if Dot11 in frame else 'N/A'} |"
+                            f"Seq: {frame[Dot11].SC >> 4 if Dot11 in frame else 'N/A'} |"
+                            f"Reason: {frame[Dot11Deauth].reason if Dot11Deauth in frame else 'N/A'} |"
+                            f"Len: {len(frame)}")
+        monitor.stop()
+
+if __name__ == "__main__":
+    main()

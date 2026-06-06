@@ -1,13 +1,14 @@
 import time
 import csv
-from scapy.all import *
-from threading import Thread
+from scapy.all import sniff, srp1, RadioTap, Dot11, Dot11Elt, Dot11ProbeReq
+from threading import Thread, Lock
 
 class DeviceHealthMonitor:
     def __init__(self, target_mac, iface, target_type="AP", log_csv=True):
         self.target_mac = target_mac.lower()
         self.iface = iface
         self.target_type = target_type
+        self.last_seen_lock = Lock()
         self.last_seen = time.time()
         self.is_running = True
 
@@ -25,7 +26,8 @@ class DeviceHealthMonitor:
         if not packet.haslayer(Dot11):
             return
         if packet.addr2 and packet.addr2.lower() == self.target_mac:
-            self.last_seen = time.time()
+            with self.last_seen_lock:
+                self.last_seen = time.time()
 
     def _sniff_loop(self):
         while self.is_running:
@@ -64,6 +66,7 @@ class DeviceHealthMonitor:
         ans = srp1(probe, iface=self.iface, timeout=0.5, verbose=False)
 
         if ans:
-            self.last_seen = time.time()
-            return True
+            with self.last_seen_lock:
+                self.last_seen = time.time()
+                return True
         return False
