@@ -64,7 +64,7 @@ def main():
     monitor.start()
 
     # Queue for storing sent frames to identify successful hit
-    history = deque(maxlen=int(1/IFS * MONITOR_TIMEOUT))
+    history = deque(maxlen=int(1/IFS * MONITOR_TIMEOUT * 2))
     time_of_death = 0
     count = 0
 
@@ -92,11 +92,14 @@ def main():
                 else:
                     monitor.reset_last_seen()  # Reset last seen to avoid false positives
             
-        # if fuzzer.is_running():
             frame = fuzzer.next_frame()
             if frame is None:
-                print("[*] Fuzzer has exhausted all frames. Stopping fuzzing.")
-                break
+                if hasattr(fuzzer, 'is_exhausted') and fuzzer.is_exhausted():
+                    print("[*] Fuzzer has exhausted all frames. Stopping fuzzing.")
+                    break
+                time.sleep(IFS)
+                continue
+                
             sendp(frame, iface=args.iface, verbose=False)
             history.append((frame, time.time()))
             count += 1
@@ -117,9 +120,9 @@ def main():
                 if timestamp >= time_of_death - 0.5 and timestamp <= time_of_death + 0.5:
                     print(f"Potential crash-inducing frame sent at {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(timestamp))}:")
                     print(f"{frame.summary()}\n"
-                            f"ID: {frame[Dot11].ID if Dot11 in frame else 'N/A'} |"
+                            f"ID: {getattr(frame[Dot11], 'ID', 'N/A') if Dot11 in frame else 'N/A'} |"
                             f"Seq: {frame[Dot11].SC >> 4 if Dot11 in frame else 'N/A'} |"
-                            f"Reason: {frame[Dot11Deauth].reason if Dot11Deauth in frame else 'N/A'} |"
+                            f"Reason: {getattr(frame[Dot11Deauth], 'reason', 'N/A') if Dot11Deauth in frame else 'N/A'} |"
                             f"Len: {len(frame)}")
         monitor.stop()
 

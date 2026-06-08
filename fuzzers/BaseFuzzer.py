@@ -4,9 +4,9 @@ class BaseFuzzer(ABC):
     """
     Base class for all fuzzers. Defines the interface for fuzzers.
     """
-    def __init__(self, target_mac, client_mac, interface):
-        self.client_mac = client_mac
-        self.target_mac = target_mac
+    def __init__(self, target_mac, client_mac=None, interface=None):
+        self.client_mac = client_mac.lower() if client_mac else None
+        self.target_mac = target_mac.lower() if target_mac else None
         self.interface = interface
     
     @abstractmethod
@@ -16,3 +16,6 @@ class BaseFuzzer(ABC):
     @abstractmethod
     def next_frame(self):
         pass
+        
+    def is_exhausted(self):
+        return False
