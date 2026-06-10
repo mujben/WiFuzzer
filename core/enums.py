@@ -19,5 +19,11 @@ class SeqFuzzMode(Enum):
     backward_large = auto() # np. 2048 → 100 → 0
     forward_large  = auto() # 100 → 2048 → 4000 (kontrola)
 
+class HandshakeFuzzMode(Enum):
+    handshake_assoc     = auto()
+
 class StatefulFuzzMode(Enum):
-    handshake_assoc     = auto() # Handshake fuzzing (Auth -> Assoc)
+    addba_buffer_overflow   = auto()
+    radio_measurement_oob   = auto()
+    wnm_bss_transition      = auto()
+    action_frame            = auto()

@@ -17,5 +17,6 @@ class BaseFuzzer(ABC):
     def next_frame(self):
         pass
         
-    def is_exhausted(self):
-        return False
+    @abstractmethod
+    def is_exhausted(self) -> bool:
+        pass
