@@ -30,6 +30,5 @@ class StatelessFuzz(BaseFuzzer):
             packet = RadioTap() / dot11 / payload()
         return packet
 
-    # def is_running(self):
-    #     # Stateless attacks should run indefinitely
-    #     return True
+    def is_exhausted(self):
+        return False
