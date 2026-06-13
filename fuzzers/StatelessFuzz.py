@@ -24,8 +24,7 @@ class StatelessFuzz(BaseFuzzer):
         dot11 = Dot11(type=type, subtype=subtype, addr1=self.target_mac, addr2=client_mac, addr3=self.target_mac)
         
         if self.attack_mode == StatelessFuzzMode.nav_jamming:
-            dot11.ID = payload()
-            packet = RadioTap() / dot11 / get_base()
+            packet = RadioTap() / payload()
         else:
             packet = RadioTap() / dot11 / payload()
         return packet

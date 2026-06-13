@@ -1,8 +1,7 @@
 # Frame factory for the fuzzer. This module contains malformed frames to be sent.
 
 import random
-from scapy.all import Dot11Elt, Dot11Deauth, RandString, Raw
-from scapy.all import Dot11AssoReq
+from scapy.all import Dot11, Dot11Elt, Dot11Deauth, Dot11AssoReq, Dot11ProbeResp, RandString, Raw
 
 from core.enums import StatelessFuzzMode, SeqFuzzMode, HandshakeFuzzMode, StatefulFuzzMode
 
@@ -15,9 +14,9 @@ def get_random_client_mac():
 # Stateless Fuzz frames
 
 def _get_ssid_too_long():
-    random_len = random.randint(0, 255)
+    random_len = random.randint(0, 30)
     payload = random.randbytes(500)
-    return Dot11Elt(ID=0, len=random_len, info=payload) / Dot11Elt(ID=1, info=b"\x82\x84\x8b\x96")
+    return Raw(load=b'\x00' + bytes([random_len]) + payload)
 
 def _get_ssid_duplication():
     ssid = "TestSSID"
@@ -33,19 +32,51 @@ def _get_vendor_specific():
     return Dot11Elt(ID=221, len=random_len, info=random.randbytes(1000)) / base
 
 def _get_nav_jamming():
-    return random.randint(10000, 65535)
+    duration = random.randint(10000, 65535)
+    return Dot11(type=1, subtype=12, ID=duration, addr1="ff:ff:ff:ff:ff:ff")
 
 def _get_deauth():
     reason_code = random.randint(0, 65535)
     return Dot11Deauth(reason=reason_code)
+
+def _get_probe_resp_overflow():
+    base = Dot11ProbeResp(timestamp=random.randint(0, 99999999), beacon_interval=0x100, cap=0x2104)
+    ssid_tag = Dot11Elt(ID=0, len=23, info="Probe response overflow")
+    rates_tag = Dot11Elt(ID=0, info=b"\x82\x84\x8b\x96")
+    return base / ssid_tag /rates_tag
+
+def _get_probe_resp_vendor():
+    base = Dot11ProbeResp(timestamp=random.randint(0, 99999999), beacon_interval=0x100, cap=0x2104)
+    ssid_tag = Dot11Elt(ID=0, len=21, info="Probe response vendor")
+    vendor_tag = Dot11Elt(ID=221, len=255, info=random.randbytes(255))
+    return base / ssid_tag / vendor_tag
+
+def _get_probe_resp_csa():
+    """Channel switch attack. Force client to change its channel into non-existent one (switch mode = 1, channel = 255, switch count = 255)"""
+    base = Dot11ProbeResp(timestamp=random.randint(0, 99999999), beacon_interval=0x100, cap=0x2104)
+    ssid_tag = Dot11Elt(ID=0, len=29, info="Probe response channel switch")
+    csa_tag = Dot11Elt(ID=37, len=3, info=b"\x01\xff\xff")
+    return base / ssid_tag / csa_tag
+
+def _get_public_action_crash():
+    """20/40 MHz coexistency management"""
+    category = b'\x04'  # Public Action
+    action = b'\x00'    # 20/40 BSS Coexistence Management
+    payload = random.randbytes(100)
+    return Raw(load=category + action + payload)
 
 STATELESS_ATTACKS = {
     StatelessFuzzMode.ssid_len: (0, 4, _get_ssid_too_long),
     StatelessFuzzMode.ssid_duplication: (0, 4, _get_ssid_duplication),
     StatelessFuzzMode.random_id: (0, 4, _get_random_id),
     StatelessFuzzMode.vendor_specific: (0, 4, _get_vendor_specific),
-    StatelessFuzzMode.nav_jamming: (2, 4, _get_nav_jamming),
-    StatelessFuzzMode.deauth: (0, 12, _get_deauth)
+    StatelessFuzzMode.nav_jamming: (1, 12, _get_nav_jamming),
+    StatelessFuzzMode.deauth: (0, 12, _get_deauth),
+
+    StatelessFuzzMode.probe_resp_overflow: (0, 5, _get_probe_resp_overflow),
+    StatelessFuzzMode.probe_resp_vendor: (0, 5, _get_probe_resp_vendor),
+    StatelessFuzzMode.probe_resp_csa: (0, 5, _get_probe_resp_csa),
+    StatelessFuzzMode.public_action_crash: (0, 13, _get_public_action_crash)
 }
 
 def get_stateless_attack_params(mode: StatelessFuzzMode):
@@ -77,8 +108,56 @@ def _get_fuzzed_assoc_req(ssid: str):
     fuzzed_element = Dot11Elt(ID=random.randint(0, 255), len=random.randint(0, 255), info=RandString(50))
     return base / essid / rates / fuzzed_element
 
+def _get_txop_assoc_overflow(ssid: str):
+    """Generates malformed TXOP in WMM tags during Association Request, vendor specific field."""
+    base = Dot11AssoReq(cap=0x1101, listen_interval=0x0003)
+    essid = Dot11Elt(ID=0, info=ssid)
+    rates = Dot11Elt(ID=1, info=b"\x82\x84\x8b\x96")
+    # Organizationally Unique Identifier + type 2 - wmm extension
+    oui_wmm = b"\x00\x50\xf2\x02"
+    wmm_payload = random.randbytes(random.randint(50, 255))
+    fuzzed_wmm = Dot11Elt(ID=221, len=len(oui_wmm + wmm_payload), info=oui_wmm + wmm_payload)
+    
+    return base / essid / rates / fuzzed_wmm
+
+def _get_multiple_rsn_contradictory(ssid: str):
+    """Generates two or more contradictory rsn types."""
+    base = Dot11AssoReq(cap=0x1101, listen_interval=0x0003)
+    essid = Dot11Elt(ID=0, info=ssid)
+    rates = Dot11Elt(ID=1, info=b"\x82\x84\x8b\x96")
+
+    version = b"\x01\x00"
+    group_cipher = b"\x00\x0f\xac\x04"
+    count_int = random.randint(1, 4)
+    pairwise_count = bytes([count_int]) + b'\x00'
+    # cipher list
+    pairwise_list = [
+        b"\x00\x0f\xac\x02", # TKIP (WPA)
+        b"\x00\x0f\xac\x04", # CCMP (WPA2)
+        b"\x00\x0f\xac\x08", # GCMP-256 (WPA3)
+        b"\xff\xff\xff\xff"  # garbage
+        ]
+    # authentication and key management
+    akm_count = pairwise_count
+    akm_list = [
+        b"\x00\x0f\xac\x02", # WPA2 PSK
+        b"\x00\x0f\xac\x08", # WPA3 SAE
+        b"\x00\x0f\xac\x03", # 802.1x with sha1
+        b"\xde\xad\xbe\xff"  # garbage
+    ]
+    cipher_bytes = bytes(0)
+    akm_bytes = bytes(0)
+    for i in range(count_int):
+        cipher_bytes += pairwise_list[i]
+        akm_bytes += akm_list[i]
+    rsn_payload = version + group_cipher + pairwise_count + cipher_bytes + akm_count + akm_bytes
+    fuzzed_rsn = Dot11Elt(ID=48, len=len(rsn_payload), info=rsn_payload)
+    return base / essid / rates / fuzzed_rsn
+
 HANDSHAKE_ATTACKS = {
-    HandshakeFuzzMode.handshake_assoc: (0, 0, _get_fuzzed_assoc_req)
+    HandshakeFuzzMode.handshake_assoc: (0, 0, _get_fuzzed_assoc_req),
+    HandshakeFuzzMode.txop_assoc: (0, 0, _get_txop_assoc_overflow),
+    HandshakeFuzzMode.rsn_conflict: (0, 0, _get_multiple_rsn_contradictory)
 }
 
 def get_handshake_attack_params(mode: HandshakeFuzzMode):
@@ -123,18 +202,33 @@ def _get_wnm_bss_transition():
 def _get_vendor_action_crash():
     """Generates malformed Action Frames (Category 127 is Vendor Specific)."""
     category = b'\x7f'  # Vendor Specific
-
+    # Organizationally Unique Identifier - Microsoft, Ruckus Wireless, MediaTek
     oui = random.choice([b'\x00\x50\xf2', b'\x00\x13\x92', b'\x00\x0c\x43'])
     vendor_action = random.randbytes(1)
     vendor_payload = random.randbytes(random.randint(10, 500))
 
     return Raw(load=category + oui + vendor_action + vendor_payload)
 
+def _get_txop_addts_exhaustion():
+    """Generates malformed ADDTS (Add Traffic Stream), targetting time limits of TXOP mechanism and throughput (802.11e)"""
+    category = b'\x11'  # QoS Action
+    action = b'\x00'    # ADDTS Request
+    
+    dialog_token = random.randbytes(1)
+    # Traffic Specification parameters
+    tspec_id = b'\x7a'
+    tspec_len = random.randint(100, 255)
+    tspec_fuzzed_params = random.randbytes(tspec_len)
+    tspec_element = tspec_id + bytes([tspec_len]) + tspec_fuzzed_params
+    
+    return Raw(load=category + action + dialog_token + tspec_element)
+
 STATEFUL_ATTACKS = {
     StatefulFuzzMode.addba_buffer_overflow: (0, 13, _get_addba_buffer_overflow),
     StatefulFuzzMode.radio_measurement_oob: (0, 13, _get_radio_measurement_oob),
     StatefulFuzzMode.wnm_bss_transition: (0, 13, _get_wnm_bss_transition),
-    StatefulFuzzMode.action_frame: (0, 13, _get_vendor_action_crash)
+    StatefulFuzzMode.action_frame: (0, 13, _get_vendor_action_crash),
+    StatefulFuzzMode.txop_addts: (0, 13, _get_txop_addts_exhaustion)
 }
 
 def get_stateful_attack_params(mode: StatefulFuzzMode):

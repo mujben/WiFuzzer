@@ -53,7 +53,7 @@ def main():
 
     # Configuration of the attack
     IFS = args.intensity
-    MONITOR_TIMEOUT = 2
+    MONITOR_TIMEOUT = 2 if args.target_type == "AP" else 10
 
     target_mac = args.target_mac
     client_mac = args.client_mac
@@ -90,8 +90,9 @@ def main():
         fuzzer.setup()
         while True:
             if not monitor.is_target_alive(timeout=MONITOR_TIMEOUT):
-                print(f"[!] Target {target_mac} is not responding.")
-                print(f"[*] Crash detected after {count} fuzzed frames.")
+                if args.target_type == "AP":
+                    print(f"[!] Target {target_mac} is not responding.")
+                    print(f"[*] Crash detected after {count} fuzzed frames.")
                 if not monitor.active_probe():
                     time_of_death = monitor.last_seen
                     print("[*] Active probe failed, confirming target is unresponsive. Stopping fuzzing.")

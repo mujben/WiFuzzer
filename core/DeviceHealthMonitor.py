@@ -3,6 +3,8 @@ import csv
 from scapy.all import sniff, srp1, RadioTap, Dot11, Dot11Elt, Dot11ProbeReq
 from threading import Thread, Lock
 
+from core.frames import get_random_client_mac
+
 class DeviceHealthMonitor:
     def __init__(self, target_mac, iface, target_type="AP", log_csv=True):
         self.target_mac = target_mac.lower()
@@ -65,13 +67,18 @@ class DeviceHealthMonitor:
         """
         Sends probe requests to the target AP and checks for response.
         """
-        if self.target_type != "AP": return True
+        if self.target_type == "AP":
+            probe = RadioTap() / Dot11(type=0, subtype=4, addr1="ff:ff:ff:ff:ff:ff", addr2="02:00:00:21:37:69", addr3=self.target_mac) / Dot11ProbeReq() / Dot11Elt(ID=0, info="")
+            ans = srp1(probe, iface=self.iface, timeout=0.5, verbose=False)
+        
+        else:
+            # Send Null Data (class 3) frame to enforce Deauthentication answer from the target
+            fake_mac = get_random_client_mac()
 
-        probe = RadioTap() / Dot11(type=0, subtype=4, addr1="ff:ff:ff:ff:ff:ff", addr2="02:00:00:21:37:69", addr3=self.target_mac) / Dot11ProbeReq() / Dot11Elt(ID=0, info="")
-        ans = srp1(probe, iface=self.iface, timeout=0.5, verbose=False)
+            trigger_frame = RadioTap() / Dot11(type=2, subtype=4, addr1=self.target_mac, addr2=fake_mac, addr3=fake_mac)
+            ans = srp1(trigger_frame, iface=self.iface, timeout=0.5, verbose=False)
 
         if ans:
-            with self.last_seen_lock:
-                self.last_seen = time.time()
-                return True
+            self.reset_last_seen()
+            return True
         return False
