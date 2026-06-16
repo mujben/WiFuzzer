@@ -123,9 +123,12 @@ def _get_txop_assoc_overflow(ssid: str):
     essid = Dot11Elt(ID=0, info=ssid)
     rates = Dot11Elt(ID=1, info=b"\x82\x84\x8b\x96")
 
-    oui_wmm = get_random_oui()
-    wmm_payload = random.randbytes(random.randint(50, 255))
-    fuzzed_wmm = Dot11Elt(ID=221, len=len(oui_wmm + wmm_payload), info=oui_wmm + wmm_payload)
+    oui_wmm = b"\x00\x50\xf2"
+    oui_type = b"\x02"
+    oui_subtype = b"\x00"
+    wmm_payload = random.randbytes(random.randint(50, 250))
+    full_payload = oui_wmm + oui_type + oui_subtype + wmm_payload
+    fuzzed_wmm = Dot11Elt(ID=221, len=len(full_payload), info=full_payload)
     
     return base / essid / rates / fuzzed_wmm
 

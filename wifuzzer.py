@@ -64,6 +64,7 @@ def main():
     if not os.path.exists(f"/sys/class/net/{args.iface}"):
         raise ValueError(f"Error: Interface {args.iface} does not exist.")
 
+    print(f"[*] {time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())}")
     print(f"[*] Starting fuzzing device {target_mac} on interface {args.iface}")
     print("[!] Press Ctrl+C to stop.")
 
