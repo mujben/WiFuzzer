@@ -53,7 +53,7 @@ def main():
 
     # Configuration of the attack
     IFS = args.intensity
-    MONITOR_TIMEOUT = 2
+    MONITOR_TIMEOUT = 2 if args.target_type == "AP" else 10
 
     target_mac = args.target_mac
     client_mac = args.client_mac
@@ -64,6 +64,7 @@ def main():
     if not os.path.exists(f"/sys/class/net/{args.iface}"):
         raise ValueError(f"Error: Interface {args.iface} does not exist.")
 
+    print(f"[*] {time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())}")
     print(f"[*] Starting fuzzing device {target_mac} on interface {args.iface}")
     print("[!] Press Ctrl+C to stop.")
 
@@ -84,14 +85,15 @@ def main():
     elif args.mode in StatefulFuzzMode.__members__:
         fuzzer = StatefulFuzz(target_mac=target_mac, interface=args.iface, attack_mode=StatefulFuzzMode[args.mode], ssid=args.ssid)
     else:
-        fuzzer = StatelessFuzz(target_mac=target_mac, interface=args.iface, attack_mode=StatelessFuzzMode[args.mode])
+        fuzzer = StatelessFuzz(target_mac=target_mac, interface=args.iface, target_type=args.target_type, attack_mode=StatelessFuzzMode[args.mode])
 
     try:
         fuzzer.setup()
         while True:
             if not monitor.is_target_alive(timeout=MONITOR_TIMEOUT):
-                print(f"[!] Target {target_mac} is not responding.")
-                print(f"[*] Crash detected after {count} fuzzed frames.")
+                if args.target_type == "AP":
+                    print(f"[!] Target {target_mac} is not responding.")
+                    print(f"[*] Crash detected after {count} fuzzed frames.")
                 if not monitor.active_probe():
                     time_of_death = monitor.last_seen
                     print("[*] Active probe failed, confirming target is unresponsive. Stopping fuzzing.")

@@ -7,9 +7,11 @@ class StatelessFuzzMode(Enum):
     vendor_specific     = auto()
     nav_jamming         = auto()
     deauth              = auto()
-
-    action_frame        = auto() 
-
+    # STA attacks
+    probe_resp_overflow = auto()
+    probe_resp_vendor   = auto()
+    probe_resp_csa      = auto()
+    public_action_crash = auto()
 
 class SeqFuzzMode(Enum):
     boundary      = auto()  # 0, 1, 4094, 4095
@@ -21,9 +23,12 @@ class SeqFuzzMode(Enum):
 
 class HandshakeFuzzMode(Enum):
     handshake_assoc     = auto()
+    txop_assoc          = auto()
+    rsn_conflict        = auto()
 
 class StatefulFuzzMode(Enum):
     addba_buffer_overflow   = auto()
     radio_measurement_oob   = auto()
     wnm_bss_transition      = auto()
     action_frame            = auto()
+    txop_addts              = auto()
